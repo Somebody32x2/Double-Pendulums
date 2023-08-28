@@ -1,21 +1,26 @@
-extern crate glutin_window;
-extern crate graphics;
-extern crate opengl_graphics;
-extern crate piston;
+// extern crate glutin_window;
+// extern crate graphics;
+// extern crate opengl_graphics;
+// extern crate piston;
+
+extern crate processing as p5;
 
 use colors_transform::{Color, Hsl, Rgb};
-use glutin_window::GlutinWindow as Window;
-use graphics::types::Matrix2d;
-use graphics::{DrawState, Graphics, Line};
-use opengl_graphics::{GlGraphics, OpenGL};
-use piston::event_loop::{EventSettings, Events};
-use piston::input::{RenderArgs, RenderEvent};
-use piston::window::WindowSettings;
+
+// use glutin_window::GlutinWindow as Window;
+// use graphics::types::Matrix2d;
+// use graphics::{DrawState, Line};
+// use opengl_graphics::{GlGraphics, OpenGL};
+// use piston::event_loop::{EventSettings, Events};
+// use piston::input::{RenderArgs, RenderEvent};
+// use piston::window::WindowSettings;
+// use piston::{UpdateArgs, UpdateEvent};
+
 use std::env;
 use std::f64::consts::PI;
-use std::fs::File;
 use std::time::Instant;
-use piston::{UpdateArgs, UpdateEvent};
+
+use p5::shapes::line::Line;
 
 #[derive(Clone, Copy)]
 struct Pendulum {
@@ -72,8 +77,8 @@ impl Pendulum {
     fn update_draw(
         mut self,
         settings: Settings,
-        transform: Matrix2d,
-        gl: &mut GlGraphics,
+        screen: &mut p5::Screen,
+        screen_mid: [u32; 2],
     ) -> Pendulum {
         let a1 = self.a1;
         let a2 = self.a2;
@@ -105,30 +110,52 @@ impl Pendulum {
         let x2 = x1 + r2 * (a2).sin();
         let y2 = y1 + r2 * (a2).cos();
 
-        let line_t = Line::new(
-            [
-                self.color.get_red() as f32 / 255.0,
-                self.color.get_blue() as f32 / 255.0,
-                self.color.get_green() as f32 / 255.0,
-                settings.pend_transp as f32,
-            ],
-            settings.pend_width,
-        );
+        // let line_t = Line::new(
+        //     [
+        //         self.color.get_red() as f32 / 255.0,
+        //         self.color.get_blue() as f32 / 255.0,
+        //         self.color.get_green() as f32 / 255.0,
+        //         settings.pend_transp as f32,
+        //     ],
+        //     settings.pend_width,
+        // );
 
         let mag = settings.mag;
 
-        line_t.draw(
-            [0.0, 0.0, x1 * mag, y1 * mag],
-            &DrawState::default(),
-            transform,
-            gl,
+        // Most P5 Functions take &[f32] as arguments instead of just f32 for some reason
+        screen.stroke(
+            &[self.color.get_red() as f32 / 255.0],
+            &[
+                self.color.get_blue() as f32 / 255.0,
+                self.color.get_green() as f32 / 255.0,
+            ],
+            &[settings.pend_transp as f32],
+            &[settings.pend_transp as f32],
         );
-        line_t.draw(
-            [x1 * mag, y1 * mag, x2 * mag, y2 * mag],
-            &DrawState::default(),
-            transform,
-            gl,
-        );
+        screen.stroke_weight(settings.pend_width as f32);
+
+        // line is new(&screen x1, y1, z1, x2, y2, z2)
+        let line = Line::new(
+            &screen,
+            &[0.0 + screen_mid[0] as f64],
+            &[0.0 + screen_mid[1] as f64],
+            &[0.0],
+            &[x1 * mag + screen_mid[0] as f64],
+            &[y1 * mag + screen_mid[1] as f64],
+            &[0.0],
+        ).unwrap();
+        screen.draw(&line).expect("Failed to draw line");
+
+        let line = Line::new(
+            &screen,
+            &[x1 * mag + screen_mid[0] as f64],
+            &[y1 * mag + screen_mid[1] as f64],
+            &[0.0],
+            &[x2 * mag + screen_mid[0] as f64],
+            &[y2 * mag + screen_mid[1] as f64],
+            &[0.0],
+        ).unwrap();
+        screen.draw(&line).expect("Failed to draw line");
 
         self.a1_v += a1_a;
         self.a2_v += a2_a;
@@ -139,37 +166,34 @@ impl Pendulum {
     }
 }
 
-pub struct App {
-    gl: GlGraphics,
+pub struct App<'a> {
+    screen: p5::Screen<'a>,
     pends: Vec<Pendulum>,
     settings: Settings,
     fps_counter: u32,
     last_update: Instant,
 }
 
-impl App {
-    fn render(&mut self, args: &RenderArgs) {
+impl App<'_> {
+    fn render(&mut self) {
         use graphics::*;
 
-        let (mid_x, mid_y) = (args.window_size[0] / 2.0, args.window_size[1] / 2.0);
+        let (mid_x, mid_y) = (self.screen.width() / 2, self.screen.height() / 2);
 
-        self.gl.draw(args.viewport(), |c, gl| {
-            // Clear the screen.
-            clear([0.2, 0.2, 0.2, 1.0], gl);
+        // Clear the screen.
+        self.screen.fill(&[0.2], &[0.2], &[0.2], &[1.0]);
 
-            for ui in 0..self.pends.len() {
-                //((time/0.5) as u8)  {
-                let new_transform = c.transform.trans(mid_x, mid_y);
+        for ui in 0..self.pends.len() {
+            //((time/0.5) as u8)  {
 
-                self.pends[ui] = self.pends[ui].update_draw(self.settings, new_transform, gl);
-            }
-        });
-        // save frame as png !!!!!!!!!!!!!!!!
-
+            self.pends[ui] =
+                self.pends[ui].update_draw(self.settings, &mut self.screen, [mid_x, mid_y]);
+        }
     }
 
     // Update function to print the fps to the console.
-    fn update(&mut self, args: &UpdateArgs) {
+    fn update(&mut self) {
+        self.screen.poll_events();
         if (self.fps_counter % 10) == 0 {
             let now = Instant::now();
             let elapsed = now.duration_since(self.last_update);
@@ -216,9 +240,7 @@ pub fn main() {
                     "  -mag, --magnification\t\tPosition multiplier. [{}]",
                     settings.mag
                 );
-                println!("  -g, --gravity\t\t\tGravity/Speed[ish]. [{}]",
-                         settings.g
-                );
+                println!("  -g, --gravity\t\t\tGravity/Speed[ish]. [{}]", settings.g);
                 println!(
                     "  -pt, --transparency\t\tTransparency of each pendulum. [{}]",
                     settings.pend_transp
@@ -263,20 +285,22 @@ pub fn main() {
         }
     }
 
-    let opengl = OpenGL::V3_2;
+    // let opengl = OpenGL::V3_2;
+    //
+    // // Create a Glutin window.
+    // let mut window: Window = WindowSettings::new(
+    //     format!(
+    //         "Double Pendulum Simulator! [{} pends, {} deg]",
+    //         amt_pend, amt_sep
+    //     ),
+    //     [600, 600],
+    // )
+    //     .graphics_api(opengl)
+    //     .exit_on_esc(true)
+    //     .build()
+    //     .unwrap();
 
-    // Create a Glutin window.
-    let mut window: Window = WindowSettings::new(
-        format!(
-            "Double Pendulum Simulator! [{} pends, {} deg]",
-            amt_pend, amt_sep
-        ),
-        [600, 600],
-    )
-        .graphics_api(opengl)
-        .exit_on_esc(true)
-        .build()
-        .unwrap();
+    let mut screen = p5::Screen::new(600, 600, false, false, false).unwrap();
 
     // Innit the pendulums
     let mut pends = Vec::new();
@@ -289,37 +313,39 @@ pub fn main() {
                 100.0 as f32,
                 50.0 as f32,
             )
-                .to_rgb(),
+            .to_rgb(),
         ));
     }
 
     // Create and run the app
     let mut app = App {
-        gl: GlGraphics::new(opengl),
+        screen,
         pends,
         settings,
         fps_counter: 0,
         last_update: Instant::now(),
     };
 
+    app.screen.space_wait();
+    app.render();
+    app.update();
+    // while true {
+    //     app.update();
+    //     app.render();
+    // }
+
     // Event Loop
-    let mut event_settings = EventSettings::new();
-    event_settings.ups = 60;
-    event_settings.max_fps = 60;
-    let mut events = Events::new(event_settings);
-    while let Some(e) = events.next(&mut window) {
-        if let Some(args) = e.render_args() {
-            app.render(&args);
-
-        }
-
-        if let Some(args) = e.update_args() {
-            app.update(&args);
-        }
-    }
+    // let mut event_settings = EventSettings::new();
+    // event_settings.ups = 60;
+    // event_settings.max_fps = 60;
+    // let mut events = Events::new(event_settings);
+    // while let Some(e) = events.next(&mut window) {
+    //     if let Some(args) = e.render_args() {
+    //         app.render(&args);
+    //     }
+    //
+    //     if let Some(args) = e.update_args() {
+    //         app.update(&args);
+    //     }
+    // }
 }
-// mod main_processing;
-//
-// fn main() {
-//     main_processing::main();
-// }
