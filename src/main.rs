@@ -1,3 +1,5 @@
+mod compile_pngs;
+
 extern crate glutin_window;
 extern crate graphics;
 extern crate opengl_graphics;
@@ -68,6 +70,7 @@ impl Pendulum {
             color,
         }
     }
+
 
     fn update_draw(
         mut self,
@@ -164,7 +167,6 @@ impl App {
                 self.pends[ui] = self.pends[ui].update_draw(self.settings, new_transform, gl);
             }
         });
-        // save frame as png !!!!!!!!!!!!!!!!
 
     }
 
@@ -190,6 +192,8 @@ pub fn main() {
     let mut settings = Settings::new();
 
     // Parse command line arguments
+    let mut compile = false;
+    let mut compile_frames = 50;
     for i in 0..args.len() {
         match args[i].as_str() {
             "-h" | "--help" => {
@@ -227,6 +231,8 @@ pub fn main() {
                     "  -pw, --width\t\t\tLine width of pendulums. [{}]\n",
                     settings.pend_width
                 );
+                println!("  -c, --compile\t\t\tCompile the frames into a video, suitable for large amounts of pendulums. [false] ");
+                println!("  -f, --frames\t\t\tNumber of frames to compile. [50]");
 
                 return;
             }
@@ -254,6 +260,12 @@ pub fn main() {
             "-pw" | "--width" => {
                 settings.pend_width = args[i + 1].parse().unwrap();
             }
+            "-c" | "--compile" => {
+                compile = true;
+            }
+            "-f" | "--frames" => {
+                compile_frames = args[i + 1].parse().unwrap();
+            }
             _ => {
                 // If the argument is not found print a message (will log on numbers too tho).
                 if args[i].contains("-") {
@@ -261,6 +273,12 @@ pub fn main() {
                 }
             }
         }
+    }
+
+    // If the compile flag is set, compile the frames and exit.
+    if compile {
+        compile_pngs::main(compile_frames, amt_pend, amt_sep, settings);
+        return;
     }
 
     let opengl = OpenGL::V3_2;
@@ -286,8 +304,8 @@ pub fn main() {
             -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
             Hsl::from(
                 i as f32 * (360.0 / amt_pend as f32),
-                100.0 as f32,
-                50.0 as f32,
+                100.0f32,
+                50.0f32,
             )
                 .to_rgb(),
         ));
@@ -310,7 +328,6 @@ pub fn main() {
     while let Some(e) = events.next(&mut window) {
         if let Some(args) = e.render_args() {
             app.render(&args);
-
         }
 
         if let Some(args) = e.update_args() {
@@ -323,3 +340,4 @@ pub fn main() {
 // fn main() {
 //     main_processing::main();
 // }
+

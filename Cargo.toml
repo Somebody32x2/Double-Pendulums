@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 colors-transform = "0.2.11"
+image = "0.24.7"
+imageproc = "0.23.0"
 piston = "0.53.2"
 piston2d-graphics = "0.43.0"
 piston2d-opengl_graphics = "0.82.0"
