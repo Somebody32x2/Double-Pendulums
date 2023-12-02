@@ -35,6 +35,8 @@ struct Settings {
     g: f64,
     m1: f64,
     m2: f64,
+    r1: f64,
+    r2: f64,
     // sep: f64,
     mag: f64,
     pend_transp: f64,
@@ -48,6 +50,8 @@ impl Settings {
             g: 0.1,
             m1: 10.0,
             m2: 10.0,
+            r1: 125.0,
+            r2: 125.0,
             // sep: 0.1,
             mag: 2.0,
             pend_transp: 0.05,
@@ -59,10 +63,10 @@ impl Settings {
 
 impl Pendulum {
     // Constructor
-    fn new(d: f64, d2: f64, color: Rgb) -> Pendulum {
+    fn new(d: f64, d2: f64, r1i: f64, r2i: f64, color: Rgb) -> Pendulum {
         Pendulum {
-            r1: 125.0,
-            r2: 125.0,
+            r1: r1i,
+            r2: r2i,
             a1: PI / d,
             a2: PI / d2,
             a1_v: 0.0,
@@ -217,6 +221,14 @@ pub fn main() {
                     settings.m2
                 );
                 println!(
+                    "  -r1, --radius1\t\t\tLength of pendulum part 1. [{}]",
+                    settings.r1
+                );
+                println!(
+                    "  -r2, --radius2\t\t\tLength of pendulum part 2. [{}]",
+                    settings.r2
+                );
+                println!(
                     "  -mag, --magnification\t\tPosition multiplier. [{}]",
                     settings.mag
                 );
@@ -247,6 +259,12 @@ pub fn main() {
             }
             "-m2" | "--mass2" => {
                 settings.m2 = args[i + 1].parse().unwrap();
+            }
+            "-r1" | "--radius1" => {
+                settings.r1 = args[i + 1].parse().unwrap();
+            }
+            "-r2" | "--radius2" => {
+                settings.r2 = args[i + 1].parse().unwrap();
             }
             "-mag" | "--magnification" => {
                 settings.mag = args[i + 1].parse().unwrap();
@@ -302,6 +320,8 @@ pub fn main() {
         pends.push(Pendulum::new(
             -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
             -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
+            settings.r1,
+            settings.r2,
             Hsl::from(
                 i as f32 * (360.0 / amt_pend as f32),
                 100.0f32,

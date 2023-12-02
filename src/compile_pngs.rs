@@ -3,7 +3,6 @@ use colors_transform::{Color, Hsl};
 use image::{ImageBuffer, Rgba};
 use imageproc::drawing::{Blend, draw_filled_rect, draw_filled_rect_mut, draw_line_segment, draw_line_segment_mut};
 use imageproc::rect::Rect;
-use processing::glutin::VirtualKeyCode::I;
 use crate::{Pendulum, Settings};
 
 static IMAGE_SIDE_LENGTH: u32 = 1500;
@@ -81,6 +80,8 @@ pub(crate) fn main(compile_frames: i32, amt_pend: usize, amt_sep: f64, settings:
         pends.push(Pendulum::new(
             -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
             -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
+            settings.r1,
+            settings.r2,
             Hsl::from(
                 i as f32 * (360.0 / amt_pend as f32),
                 100.0f32,
