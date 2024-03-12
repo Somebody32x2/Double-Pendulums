@@ -1,9 +1,9 @@
 use std::process::Command;
 use colors_transform::{Color, Hsl};
 use image::{ImageBuffer, Rgba};
-use imageproc::drawing::{Blend, draw_filled_rect, draw_filled_rect_mut, draw_line_segment, draw_line_segment_mut};
+use imageproc::drawing::{Blend, draw_antialiased_line_segment_mut, draw_filled_circle_mut, draw_filled_rect_mut, draw_hollow_circle_mut, draw_line_segment_mut};
 use imageproc::rect::Rect;
-use crate::{Pendulum, Settings};
+use crate::{Pendulum, Settings, Quality};
 
 static IMAGE_SIDE_LENGTH: u32 = 1500;
 
@@ -64,10 +64,22 @@ impl Pendulum {
         draw_line_segment_mut(image, ((x1 * mag + midpt) as f32, (y1 * mag + midpt) as f32), ((x2 * mag + midpt) as f32, (y2 * mag + midpt) as f32), color);
 
 
-        self.a1_v += a1_a;
-        self.a2_v += a2_a;
-        self.a1 += a1_v;
-        self.a2 += a2_v;
+        if settings.quality == Quality::Medium {
+            draw_filled_circle_mut(image, ((x1 * mag - (m1 / 2.0) + midpt) as i32, (y1 * mag - (m1 / 2.0) + midpt) as i32), m1 as i32, color);
+            draw_filled_circle_mut(image, ((x2 * mag - (m2 / 2.0) + midpt) as i32, (y2 * mag - (m2 / 2.0) + midpt) as i32), m2 as i32, color);
+        }
+        else if settings.quality == Quality::High {
+            let black_transparent = Rgba([0, 0, 0, (settings.pend_transp * 255.0f64) as u8]);
+            draw_filled_circle_mut(image, ((x1 * mag + midpt) as i32, (y1 * mag + midpt) as i32), m1 as i32, color);
+            draw_filled_circle_mut(image, ((x2 * mag + midpt) as i32, (y2 * mag + midpt) as i32), m2 as i32, color);
+            draw_hollow_circle_mut(image, ((x1 * mag + midpt) as i32, (y1 * mag + midpt) as i32), m1 as i32, black_transparent);
+            draw_hollow_circle_mut(image, ((x2 * mag + midpt) as i32, (y2 * mag + midpt) as i32), m2 as i32, black_transparent);
+        }
+
+        self.a1_v += a1_a * settings.speed;
+        self.a2_v += a2_a * settings.speed;
+        self.a1 += a1_v * settings.speed;
+        self.a2 += a2_v * settings.speed;
 
         self
     }

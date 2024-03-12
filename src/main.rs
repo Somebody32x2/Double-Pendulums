@@ -8,7 +8,7 @@ extern crate piston;
 use colors_transform::{Color, Hsl, Rgb};
 use glutin_window::GlutinWindow as Window;
 use graphics::types::Matrix2d;
-use graphics::{DrawState, Graphics, Line};
+use graphics::{CircleArc, DrawState, Ellipse, Graphics, Line};
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent};
@@ -18,6 +18,14 @@ use std::f64::consts::PI;
 use std::fs::File;
 use std::time::Instant;
 use piston::{UpdateArgs, UpdateEvent};
+
+#[derive(Clone, Copy, PartialEq)]
+enum Quality {
+    // High - 3, Medium - 2, Low - 1
+    High = 3,
+    Medium = 2,
+    Low = 1,
+}
 
 #[derive(Clone, Copy)]
 struct Pendulum {
@@ -41,6 +49,8 @@ struct Settings {
     mag: f64,
     pend_transp: f64,
     pend_width: f64,
+    speed: f64,
+    quality: Quality,
     // amt_pend: i32,
 }
 
@@ -56,6 +66,8 @@ impl Settings {
             mag: 2.0,
             pend_transp: 0.05,
             pend_width: 1.5,
+            speed: 1.0,
+            quality: Quality::Low,
             // amt_pend: 50_000,
         }
     }
@@ -137,10 +149,65 @@ impl Pendulum {
             gl,
         );
 
-        self.a1_v += a1_a;
-        self.a2_v += a2_a;
-        self.a1 += a1_v;
-        self.a2 += a2_v;
+        if settings.quality == Quality::Medium {
+            // Draw a circle at the middle and end of the pend depending on mass
+            let circle_t = Ellipse::new([
+                self.color.get_red() / 255.0,
+                self.color.get_blue() / 255.0,
+                self.color.get_green() / 255.0,
+                settings.pend_transp as f32,
+            ]);
+            circle_t.draw(
+                [x1 * mag - (m1 / 2.0), y1 * mag - (m1 / 2.0), m1, m1],
+                &DrawState::default(),
+                transform,
+                gl,
+            );
+            circle_t.draw(
+                [x2 * mag - (m2 / 2.0), y2 * mag - (m2 / 2.0), m2, m2],
+                &DrawState::default(),
+                transform,
+                gl,
+            );
+        }
+        else if settings.quality == Quality::High {
+            let circle_t = Ellipse::new([
+                self.color.get_red() / 255.0,
+                self.color.get_blue() / 255.0,
+                self.color.get_green() / 255.0,
+                settings.pend_transp as f32,
+            ]);
+            let bl_circle_t = CircleArc::new([0.0, 0.0, 0.0, settings.pend_transp as f32], 4.0, 0.0, 2.0 * PI);
+            circle_t.draw(
+                [x1 * mag - (m1 / 2.0), y1 * mag - (m1 / 2.0), m1, m1],
+                &DrawState::default(),
+                transform,
+                gl,
+            );
+            circle_t.draw(
+                [x2 * mag - (m2 / 2.0), y2 * mag - (m2 / 2.0), m2, m2],
+                &DrawState::default(),
+                transform,
+                gl,
+            );
+            bl_circle_t.draw(
+                [x1 * mag - (m1 / 2.0), y1 * mag - (m1 / 2.0), m1, m1],
+                &DrawState::default(),
+                transform,
+                gl,
+            );
+            bl_circle_t.draw(
+                [x2 * mag - (m2 / 2.0), y2 * mag - (m2 / 2.0), m2, m2],
+                &DrawState::default(),
+                transform,
+                gl,
+            );
+        }
+
+        self.a1_v += a1_a * settings.speed;
+        self.a2_v += a2_a * settings.speed;
+        self.a1 += a1_v * settings.speed;
+        self.a2 += a2_v * settings.speed;
 
         self
     }
@@ -171,7 +238,6 @@ impl App {
                 self.pends[ui] = self.pends[ui].update_draw(self.settings, new_transform, gl);
             }
         });
-
     }
 
     // Update function to print the fps to the console.
@@ -243,12 +309,14 @@ pub fn main() {
                     "  -pw, --width\t\t\tLine width of pendulums. [{}]\n",
                     settings.pend_width
                 );
+                println!(" -speed\t\t\t\tSpeed of the simulation. [{}]", settings.speed);
+                println!("  -q, --quality\t\t\tQuality of the pendulums. (1-3) [1]");
                 println!("  -c, --compile\t\t\tCompile the frames into a video, suitable for large amounts of pendulums. [false] ");
                 println!("  -f, --frames\t\t\tNumber of frames to compile. [50]");
 
                 return;
             }
-            "-p" | "--pendulums" => {
+            "-p" | "--pendulums" | "-n" => {
                 amt_pend = args[i + 1].parse().unwrap();
             }
             "-s" | "--separation" => {
@@ -277,6 +345,17 @@ pub fn main() {
             }
             "-pw" | "--width" => {
                 settings.pend_width = args[i + 1].parse().unwrap();
+            }
+            "-speed" => {
+                settings.speed = args[i + 1].parse().unwrap();
+            }
+            "-q" | "--quality" => {
+                settings.quality = match args[i + 1].parse().unwrap() {
+                    1 => Quality::Low,
+                    2 => Quality::Medium,
+                    3 => Quality::High,
+                    _ => Quality::Low,
+                };
             }
             "-c" | "--compile" => {
                 compile = true;
