@@ -39,12 +39,6 @@ struct Pendulum {
     color: Rgb,
 }
 #[derive(Clone, Copy)]
-struct DrawInstructions {
-    lines: [f64; 6],
-    circles: [f64; 4],
-    bl_circles: [f64; 4],
-}
-#[derive(Clone, Copy)]
 struct Settings {
     g: f64,
     m1: f64,
@@ -97,7 +91,7 @@ impl Pendulum {
     fn update_draw(
         mut self,
         settings: Settings,
-    ) -> (Pendulum, DrawInstructions) {
+    ) -> (Pendulum, [f64; 4]) {
         let a1 = self.a1;
         let a2 = self.a2;
         let a1_v = self.a1_v;
@@ -128,6 +122,22 @@ impl Pendulum {
         let x2 = x1 + r2 * (a2).sin();
         let y2 = y1 + r2 * (a2).cos();
 
+        self.a1_v += a1_a * settings.speed;
+        self.a2_v += a2_a * settings.speed;
+        self.a1 += a1_v * settings.speed;
+        self.a2 += a2_v * settings.speed;
+
+        (self, [x1, x2, y1, y2])
+    }
+    fn draw(self, gl: &mut GlGraphics, transform: Matrix2d, settings: Settings, update_result: [f64; 4]) {
+        let x1 = update_result[0];
+        let x2 = update_result[1];
+        let y1 = update_result[2];
+        let y2 = update_result[3];
+        let m1 = settings.m1;
+        let m2 = settings.m2;
+        let mag = settings.mag;
+        // println!("x1: {}, x2: {}, y1: {}, y2: {}", x1, x2, y1, y2);
         let line_t = Line::new(
             [
                 self.color.get_red() as f32 / 255.0,
@@ -138,8 +148,7 @@ impl Pendulum {
             settings.pend_width,
         );
 
-        let mag = settings.mag;
-        let line_draw_params = {}
+
         line_t.draw(
             [0.0, 0.0, x1 * mag, y1 * mag],
             &DrawState::default(),
@@ -206,14 +215,8 @@ impl Pendulum {
                 gl,
             );
         }
-
-        self.a1_v += a1_a * settings.speed;
-        self.a2_v += a2_a * settings.speed;
-        self.a1 += a1_v * settings.speed;
-        self.a2 += a2_v * settings.speed;
-
-        (self,
     }
+
 }
 
 pub struct App {
@@ -231,56 +234,75 @@ impl App {
         let (mid_x, mid_y) = (args.window_size[0] / 2.0, args.window_size[1] / 2.0);
 
         // Wrap the pends vector in an Arc
-        let pends = Arc::new(std::mem::replace(&mut self.pends, Vec::new()));
+        // let pends = Arc::new(std::mem::take(&mut self.pends));
+        let pends = Arc::new(self.pends.clone());
+        // println!("Drawing {} pendulums", pends.len());
+
+        // Create a vector to hold the draw results from the threads (the [f64; 4]) (the new vector should have the length of pends vector
+        let mut draw_results = vec![[0.0; 4]; pends.len()];
 
         // Create a vector to hold the handles of the spawned threads
         let mut handles = vec![];
 
         // Divide the pends vector into chunks
         let num_threads = 4; // replace with the number of threads you want to use
-        let chunk_size = self.pends.len() / num_threads;
+        let chunk_size = pends.len() / num_threads;
+        // println!("Splitting {} pends into {} chunks of size {}", pends.len(), num_threads, chunk_size);
 
         for i in 0..num_threads {
             // Clone the Arc to be moved into the thread
             let pends = Arc::clone(&pends);
+            let num_pends = self.pends.len();
+            let settings = self.settings.clone();
 
             // Spawn a thread
             let handle = thread::spawn(move || {
                 // Calculate the start and end indices for this thread
                 let start = i * chunk_size;
                 let end = if i == num_threads - 1 {
-                    self.pends.len() // Handle the case where pends.len() is not divisible by num_threads
+
+                    num_pends // Handle the case where pends.len() is not divisible by num_threads
                 } else {
                     start + chunk_size
                 };
 
                 // Process a chunk of the pends vector
                 let mut updated_pends = Vec::new();
+                let mut updated_draw_results = Vec::new();
                 for j in start..end {
-                    let new_transform = c.transform.trans(mid_x, mid_y);
-                    updated_pends.push(pends[j].update_draw(self.settings, new_transform, gl));
+                    // println!("Processing pend {}", j);
+                    let (pend, draw_result) = pends[j].update_draw(settings);
+                    updated_pends.push(pend);
+                    updated_draw_results.push(draw_result);
+                    // pends[j] = pend;
+                    // draw_results[j] = draw_result;
                 }
-                updated_pends
+                // println!("processed pends from {} to {}", start, end);
+                (updated_pends, updated_draw_results, start, end)
             });
 
             // Store the thread handle
             handles.push(handle);
         }
-
+        
         // Wait for all threads to finish and collect the results
         for handle in handles {
-            let updated_pends = handle.join().unwrap();
-            self.pends.extend(updated_pends);
+            let (updated_pends, updated_draw_results, start, end) = handle.join().unwrap();
+            self.pends[start..end].copy_from_slice(&updated_pends[..(end - start)]);
+            draw_results[start..end].copy_from_slice(&updated_draw_results[..(end - start)]);
+            // println!("Updated pends from {} to {}", start, end)
         }
+        // println!("Drawing {} pendulums", self.pends.len());
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             clear([0.2, 0.2, 0.2, 1.0], gl);
 
-            for ui in 0..self.pends.len() {
+            for ui in 0..pends.len() {
                 //((time/0.5) as u8)  {
                 let new_transform = c.transform.trans(mid_x, mid_y);
 
-                self.pends[ui] = self.pends[ui].update(self.settings, new_transform, gl);
+                self.pends[ui].draw(gl, new_transform, self.settings, draw_results[ui]);
+                // println!("Drawing pendulum {}", ui);
             }
         });
     }
