@@ -13,9 +13,10 @@ use opengl_graphics::{GlGraphics, OpenGL};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent};
 use piston::window::WindowSettings;
-use std::env;
+use std::{env, thread};
 use std::f64::consts::PI;
 use std::fs::File;
+use std::sync::Arc;
 use std::time::Instant;
 use piston::{UpdateArgs, UpdateEvent};
 
@@ -37,7 +38,12 @@ struct Pendulum {
     a2_v: f64,
     color: Rgb,
 }
-
+#[derive(Clone, Copy)]
+struct DrawInstructions {
+    lines: [f64; 6],
+    circles: [f64; 4],
+    bl_circles: [f64; 4],
+}
 #[derive(Clone, Copy)]
 struct Settings {
     g: f64,
@@ -91,9 +97,7 @@ impl Pendulum {
     fn update_draw(
         mut self,
         settings: Settings,
-        transform: Matrix2d,
-        gl: &mut GlGraphics,
-    ) -> Pendulum {
+    ) -> (Pendulum, DrawInstructions) {
         let a1 = self.a1;
         let a2 = self.a2;
         let a1_v = self.a1_v;
@@ -135,7 +139,7 @@ impl Pendulum {
         );
 
         let mag = settings.mag;
-
+        let line_draw_params = {}
         line_t.draw(
             [0.0, 0.0, x1 * mag, y1 * mag],
             &DrawState::default(),
@@ -169,8 +173,7 @@ impl Pendulum {
                 transform,
                 gl,
             );
-        }
-        else if settings.quality == Quality::High {
+        } else if settings.quality == Quality::High {
             let circle_t = Ellipse::new([
                 self.color.get_red() / 255.0,
                 self.color.get_blue() / 255.0,
@@ -209,7 +212,7 @@ impl Pendulum {
         self.a1 += a1_v * settings.speed;
         self.a2 += a2_v * settings.speed;
 
-        self
+        (self,
     }
 }
 
@@ -227,6 +230,48 @@ impl App {
 
         let (mid_x, mid_y) = (args.window_size[0] / 2.0, args.window_size[1] / 2.0);
 
+        // Wrap the pends vector in an Arc
+        let pends = Arc::new(std::mem::replace(&mut self.pends, Vec::new()));
+
+        // Create a vector to hold the handles of the spawned threads
+        let mut handles = vec![];
+
+        // Divide the pends vector into chunks
+        let num_threads = 4; // replace with the number of threads you want to use
+        let chunk_size = self.pends.len() / num_threads;
+
+        for i in 0..num_threads {
+            // Clone the Arc to be moved into the thread
+            let pends = Arc::clone(&pends);
+
+            // Spawn a thread
+            let handle = thread::spawn(move || {
+                // Calculate the start and end indices for this thread
+                let start = i * chunk_size;
+                let end = if i == num_threads - 1 {
+                    self.pends.len() // Handle the case where pends.len() is not divisible by num_threads
+                } else {
+                    start + chunk_size
+                };
+
+                // Process a chunk of the pends vector
+                let mut updated_pends = Vec::new();
+                for j in start..end {
+                    let new_transform = c.transform.trans(mid_x, mid_y);
+                    updated_pends.push(pends[j].update_draw(self.settings, new_transform, gl));
+                }
+                updated_pends
+            });
+
+            // Store the thread handle
+            handles.push(handle);
+        }
+
+        // Wait for all threads to finish and collect the results
+        for handle in handles {
+            let updated_pends = handle.join().unwrap();
+            self.pends.extend(updated_pends);
+        }
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             clear([0.2, 0.2, 0.2, 1.0], gl);
@@ -235,7 +280,7 @@ impl App {
                 //((time/0.5) as u8)  {
                 let new_transform = c.transform.trans(mid_x, mid_y);
 
-                self.pends[ui] = self.pends[ui].update_draw(self.settings, new_transform, gl);
+                self.pends[ui] = self.pends[ui].update(self.settings, new_transform, gl);
             }
         });
     }
