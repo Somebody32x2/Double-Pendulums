@@ -20,8 +20,8 @@ impl Pendulum {
         let a2_v = self.a2_v;
         let r1 = self.r1;
         let r2 = self.r2;
-        let m1 = settings.m1;
-        let m2 = settings.m2;
+        let m1 = self.m1;
+        let m2 = self.m2;
         let g = settings.g;
 
         let mut num1 = -g * (2.0 * m1 + m2) * (a1);
@@ -85,24 +85,25 @@ impl Pendulum {
     }
 }
 
-pub(crate) fn main(compile_frames: i32, amt_pend: usize, amt_sep: f64, settings: Settings) {
+pub(crate) fn main(compile_frames: i32, mut pends: Vec<Pendulum>, amt_sep: f64, settings: Settings) {
     // Innit the pendulums
-    let mut pends = Vec::new();
-    for i in 0..amt_pend {
-        pends.push(Pendulum::new(
-            -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
-            -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
-            settings.r1,
-            settings.r2,
-            Hsl::from(
-                i as f32 * (360.0 / amt_pend as f32),
-                100.0f32,
-                50.0f32,
-            )
-                .to_rgb(),
-        ));
-    }
-
+    // let mut pends = Vec::new();
+    // for i in 0..amt_pend {
+    //     pends.push(Pendulum::new(
+    //         -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
+    //         -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
+    //         settings.r1,
+    //         settings.r2,
+    //         Hsl::from(
+    //             i as f32 * (360.0 / amt_pend as f32),
+    //             100.0f32,
+    //             50.0f32,
+    //         )
+    //             .to_rgb(),
+    //     ));
+    // }
+    let amt_pend = pends.len();
+    
     // Try creating the folder /frames if it doesn't exist.
     std::fs::create_dir("frames").unwrap_or_default();
 

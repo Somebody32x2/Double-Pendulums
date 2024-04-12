@@ -1,23 +1,23 @@
-mod compile_pngs;
-
 extern crate glutin_window;
 extern crate graphics;
 extern crate opengl_graphics;
 extern crate piston;
 
-use colors_transform::{Color, Hsl, Rgb};
-use glutin_window::GlutinWindow as Window;
-use graphics::types::Matrix2d;
-use graphics::{CircleArc, DrawState, Ellipse, Graphics, Line};
-use opengl_graphics::{GlGraphics, OpenGL};
-use piston::event_loop::{EventSettings, Events};
-use piston::input::{RenderArgs, RenderEvent};
-use piston::window::WindowSettings;
 use std::env;
 use std::f64::consts::PI;
-use std::fs::File;
 use std::time::Instant;
+
+use colors_transform::{Color, Hsl, Rgb};
+use glutin_window::GlutinWindow as Window;
+use graphics::{CircleArc, DrawState, Ellipse, Graphics, Line};
+use graphics::types::Matrix2d;
+use opengl_graphics::{GlGraphics, OpenGL};
 use piston::{UpdateArgs, UpdateEvent};
+use piston::event_loop::{Events, EventSettings};
+use piston::input::{RenderArgs, RenderEvent};
+use piston::window::WindowSettings;
+
+mod compile_pngs;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Quality {
@@ -28,9 +28,20 @@ enum Quality {
 }
 
 #[derive(Clone, Copy)]
+enum VaryingType {
+    Angle = 0,
+    Length1 = 1,
+    Length2 = 2,
+    Mass1 = 3,
+    Mass2 = 4,
+}
+
+#[derive(Clone, Copy)]
 struct Pendulum {
     r1: f64,
     r2: f64,
+    m1: f64,
+    m2: f64,
     a1: f64,
     a2: f64,
     a1_v: f64,
@@ -41,8 +52,8 @@ struct Pendulum {
 #[derive(Clone, Copy)]
 struct Settings {
     g: f64,
-    m1: f64,
-    m2: f64,
+    max_m1: f64,
+    max_m2: f64,
     r1: f64,
     r2: f64,
     // sep: f64,
@@ -51,6 +62,7 @@ struct Settings {
     pend_width: f64,
     speed: f64,
     quality: Quality,
+    varying: VaryingType,
     // amt_pend: i32,
 }
 
@@ -58,8 +70,8 @@ impl Settings {
     fn new() -> Settings {
         Settings {
             g: 0.1,
-            m1: 10.0,
-            m2: 10.0,
+            max_m1: 10.0,
+            max_m2: 10.0,
             r1: 125.0,
             r2: 125.0,
             // sep: 0.1,
@@ -68,6 +80,7 @@ impl Settings {
             pend_width: 1.5,
             speed: 1.0,
             quality: Quality::Low,
+            varying: VaryingType::Angle,
             // amt_pend: 50_000,
         }
     }
@@ -75,10 +88,12 @@ impl Settings {
 
 impl Pendulum {
     // Constructor
-    fn new(d: f64, d2: f64, r1i: f64, r2i: f64, color: Rgb) -> Pendulum {
+    fn new(d: f64, d2: f64, r1i: f64, r2i: f64, m1i: f64, m2i: f64, color: Rgb) -> Pendulum {
         Pendulum {
             r1: r1i,
             r2: r2i,
+            m1: m1i,
+            m2: m2i,
             a1: PI / d,
             a2: PI / d2,
             a1_v: 0.0,
@@ -100,8 +115,8 @@ impl Pendulum {
         let a2_v = self.a2_v;
         let r1 = self.r1;
         let r2 = self.r2;
-        let m1 = settings.m1;
-        let m2 = settings.m2;
+        let m1 = self.m1;
+        let m2 = self.m2;
         let g = settings.g;
 
         let mut num1 = -g * (2.0 * m1 + m2) * (a1);
@@ -177,7 +192,7 @@ impl Pendulum {
                 self.color.get_green() / 255.0,
                 settings.pend_transp as f32,
             ]);
-            let bl_circle_t = CircleArc::new([0.0, 0.0, 0.0, settings.pend_transp as f32], 4.0, 0.0, 2.0 * PI);
+            let bl_circle_t = CircleArc::new([0.0, 0.0, 0.0, settings.pend_transp as f32],0.0, 0.0, 2.0 * PI);
             circle_t.draw(
                 [x1 * mag - (m1 / 2.0), y1 * mag - (m1 / 2.0), m1, m1],
                 &DrawState::default(),
@@ -274,17 +289,19 @@ pub fn main() {
                     "  -p, --pendulums\t\tNumber of pendulums to simulate. [{}]",
                     amt_pend
                 );
+                println!("  -n\t\t\t\tAlias for -p.");
+                println!("  -v, --vary\t\t\tVary the angle, length1, length2, mass1, or mass2. [angle]");
                 println!(
-                    "  -s, --separation\t\tSeparation between pendulums. [{}]",
+                    "  -s, --separation\t\tSeparation between pendulums. [{}] (used only when varying angle)",
                     amt_sep
                 );
                 println!(
-                    "  -m1, --mass1\t\t\tMass of pendulum part 1. [{}]",
-                    settings.m1
+                    "  -m1, --mass1\t\t\tMass of pendulum part 1. [{}] (used as max mass1 when varying mass1)",
+                    settings.max_m1
                 );
                 println!(
-                    "  -m2, --mass2\t\t\tMass of pendulum part 2. [{}]",
-                    settings.m2
+                    "  -m2, --mass2\t\t\tMass of pendulum part 2. [{}] (used as max mass2 when varying mass2)",
+                    settings.max_m2
                 );
                 println!(
                     "  -r1, --radius1\t\t\tLength of pendulum part 1. [{}]",
@@ -319,14 +336,24 @@ pub fn main() {
             "-p" | "--pendulums" | "-n" => {
                 amt_pend = args[i + 1].parse().unwrap();
             }
+            "-v" | "--vary" => {
+                settings.varying = match args[i + 1].as_str() {
+                    "angle" => VaryingType::Angle,
+                    "length1" => VaryingType::Length1,
+                    "length2" => VaryingType::Length2,
+                    "mass1" => VaryingType::Mass1,
+                    "mass2" => VaryingType::Mass2,
+                    _ => VaryingType::Angle,
+                };
+            }
             "-s" | "--separation" => {
                 amt_sep = args[i + 1].parse().unwrap();
             }
             "-m1" | "--mass1" => {
-                settings.m1 = args[i + 1].parse().unwrap();
+                settings.max_m1 = args[i + 1].parse().unwrap();
             }
             "-m2" | "--mass2" => {
-                settings.m2 = args[i + 1].parse().unwrap();
+                settings.max_m2 = args[i + 1].parse().unwrap();
             }
             "-r1" | "--radius1" => {
                 settings.r1 = args[i + 1].parse().unwrap();
@@ -373,11 +400,102 @@ pub fn main() {
     }
 
     // If the compile flag is set, compile the frames and exit.
-    if compile {
-        compile_pngs::main(compile_frames, amt_pend, amt_sep, settings);
-        return;
+
+
+
+
+    // Innit the pendulums
+    let mut pends = Vec::new();
+    for i in 0..amt_pend {
+        match settings.varying {
+            VaryingType::Angle => {
+                pends.push(Pendulum::new(
+                    -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
+                    -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
+                    settings.r1,
+                    settings.r2,
+                    settings.max_m1,
+                    settings.max_m2,
+                    Hsl::from(
+                        i as f32 * (360.0 / amt_pend as f32),
+                        100.0f32,
+                        50.0f32,
+                    )
+                        .to_rgb(),
+                ));
+            }
+            VaryingType::Length1 => {
+                pends.push(Pendulum::new(
+                    -2.0,
+                    -2.0,
+                    settings.r1 + (i as f64 * (settings.max_m1 / amt_pend as f64)),
+                    settings.r2,
+                    settings.max_m1,
+                    settings.max_m2,
+                    Hsl::from(
+                        i as f32 * (360.0 / amt_pend as f32),
+                        100.0f32,
+                        50.0f32,
+                    )
+                        .to_rgb(),
+                ));
+            }
+            VaryingType::Length2 => {
+                pends.push(Pendulum::new(
+                    -2.0,
+                    -2.0,
+                    settings.r1,
+                    settings.r2 + (i as f64 * (settings.max_m2 / amt_pend as f64)),
+                    settings.max_m1,
+                    settings.max_m2,
+                    Hsl::from(
+                        i as f32 * (360.0 / amt_pend as f32),
+                        100.0f32,
+                        50.0f32,
+                    )
+                        .to_rgb(),
+                ));
+            }
+            VaryingType::Mass1 => {
+                pends.push(Pendulum::new(
+                    -2.0,
+                    -2.0,
+                    settings.r1,
+                    settings.r2,
+                    i as f64 * (settings.max_m1 / amt_pend as f64),
+                    settings.max_m2,
+                    Hsl::from(
+                        i as f32 * (360.0 / amt_pend as f32),
+                        100.0f32,
+                        50.0f32,
+                    )
+                        .to_rgb(),
+                ));
+            }
+            VaryingType::Mass2 => {
+                pends.push(Pendulum::new(
+                    -2.0,
+                    -2.0,
+                    settings.r1,
+                    settings.r2,
+                    settings.max_m1,
+                    i as f64 * (settings.max_m2 / amt_pend as f64),
+                    Hsl::from(
+                        i as f32 * (360.0 / amt_pend as f32),
+                        100.0f32,
+                        50.0f32,
+                    )
+                        .to_rgb(),
+                ));
+            }
+        }
     }
 
+    if compile {
+        compile_pngs::main(compile_frames, pends, amt_sep, settings);
+        return;
+    }
+    
     let opengl = OpenGL::V3_2;
 
     // Create a Glutin window.
@@ -392,23 +510,6 @@ pub fn main() {
         .exit_on_esc(true)
         .build()
         .unwrap();
-
-    // Innit the pendulums
-    let mut pends = Vec::new();
-    for i in 0..amt_pend {
-        pends.push(Pendulum::new(
-            -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
-            -2.0 + (i as f64 * (amt_sep / amt_pend as f64)),
-            settings.r1,
-            settings.r2,
-            Hsl::from(
-                i as f32 * (360.0 / amt_pend as f32),
-                100.0f32,
-                50.0f32,
-            )
-                .to_rgb(),
-        ));
-    }
 
     // Create and run the app
     let mut app = App {
